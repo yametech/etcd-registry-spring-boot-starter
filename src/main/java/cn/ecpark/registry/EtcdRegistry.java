@@ -5,6 +5,7 @@ import io.etcd.jetcd.lease.LeaseGrantResponse;
 import io.etcd.jetcd.lease.LeaseTimeToLiveResponse;
 import io.etcd.jetcd.options.LeaseOption;
 import io.etcd.jetcd.options.PutOption;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,9 @@ import java.util.concurrent.*;
 @Data
 @Slf4j
 public class EtcdRegistry implements Registry {
+
+    private int serverPort;
+
     @Value("${spring.application.name}")
     private String serviceName;
 
@@ -75,16 +79,16 @@ public class EtcdRegistry implements Registry {
     private Node genNode(){
         Node node = new Node();
         node.id = UUID.randomUUID().toString();
-        node.address = AddressUtils.getLocalAddress();
+        node.address = String.format("%s:%s",AddressUtils.getLocalAddress(),this.serverPort);
         return node;
     }
 
 
     @Override
     public void register() {
-        log.info("=== register service to etcd ===");
+        log.info("register {}:{} to etcd",getPath(),this.getAddress());
         try {
-            ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+            ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("etcd-registry-thread"));
             this.scheduledFuture = scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -126,11 +130,11 @@ public class EtcdRegistry implements Registry {
 
         KV kvClient = client.getKVClient();
         ByteSequence key = ByteSequence.from(getPath(), StandardCharsets.UTF_8);
-        ByteSequence value = ByteSequence.from(this.node.getAddress(), StandardCharsets.UTF_8);
+        ByteSequence value = ByteSequence.from(this.getAddress(), StandardCharsets.UTF_8);
         PutOption putOption = PutOption.newBuilder().withLeaseId(this.leaseId).build();
         kvClient.put(key,value,putOption);
         if(log.isDebugEnabled()){
-            log.debug("register {}:{} to etcd",getPath(),this.node.getAddress());
+            log.debug("register {}:{} to etcd",getPath(),this.getAddress());
         }
     }
 
@@ -138,12 +142,16 @@ public class EtcdRegistry implements Registry {
         return String.format("%s%s_%s",this.prefix, this.serviceName,this.node.getId());
     }
 
+    private String getAddress(){
+        return String.format("%s:%s",AddressUtils.getLocalAddress(),this.serverPort);
+    }
+
     @Override
     public void unregister() {
         log.info("===start unregister service from etcd ===");
         //取消定时任务
         if(this.scheduledFuture != null && !this.scheduledFuture.isCancelled()) {
-            this.scheduledFuture.cancel(true);
+            this.scheduledFuture.cancel(false);
         }
         //释放租约
         Lease leaseClient = this.client.getLeaseClient();
@@ -155,4 +163,5 @@ public class EtcdRegistry implements Registry {
         log.info("delete key:{} from etcd",getPath());
         log.info("===unregister service from etcd end===");
     }
+
 }
