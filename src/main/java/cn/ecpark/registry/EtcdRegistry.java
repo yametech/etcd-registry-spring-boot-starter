@@ -29,6 +29,8 @@ public class EtcdRegistry implements Registry {
     private int serverPort;
 
     @Value("${spring.application.name}")
+    private String applicationName;
+
     private String serviceName;
 
     private RegistryProperties registryProperties;
@@ -139,7 +141,11 @@ public class EtcdRegistry implements Registry {
     }
 
     private String getPath(){
-        return String.format("%s%s_%s",this.prefix, this.serviceName,this.node.getId());
+        String registryName = this.serviceName;
+        if (!StringUtils.hasLength(registryName)) {
+            registryName = this.applicationName;
+        }
+        return String.format("%s%s_%s",this.prefix, registryName, this.node.getId());
     }
 
     private String getAddress(){
